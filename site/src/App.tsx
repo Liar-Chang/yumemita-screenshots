@@ -234,6 +234,70 @@ export default function App() {
           >
             <div className="relative">
               <img src={BASE + selected.img} alt={selected.text} className="w-full" />
+              <div className="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-black/55 backdrop-blur-sm px-1.5 py-1.5">
+                <button
+                  onClick={() =>
+                    copyImageToClipboard(BASE + selected.img)
+                      .then(() => showToast('已複製圖片 ✓'))
+                      .catch(() => showToast('複製失敗，改用下載吧'))
+                  }
+                  title="複製圖片"
+                  className="p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                    <rect x="3" y="4" width="14" height="12" rx="1.5" />
+                    <circle cx="7.3" cy="8.3" r="1.3" />
+                    <path d="M4 14.5l4-4 3 3 2-2 4 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {selected.text && (
+                  <button
+                    onClick={() =>
+                      navigator.clipboard.writeText(selected.text).then(() => showToast('已複製台詞 ✓'))
+                    }
+                    title="複製台詞"
+                    className="p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                  >
+                    <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                      <path d="M4 6h12M4 10h12M4 14h7" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    navigator.clipboard.writeText(location.href).then(() => showToast('已複製連結 ✓'))
+                  }
+                  title="複製連結"
+                  className="p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                    <path
+                      d="M8.5 11.5l3-3M7 12.5l-1.2 1.2a2.3 2.3 0 01-3.3-3.3L3.8 9.2M12.2 7.8L13.4 6.6a2.3 2.3 0 013.3 3.3L15.5 11"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                <a
+                  href={BASE + selected.img}
+                  download={`${selected.text || selected.id}.webp`}
+                  title="下載"
+                  className="p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                    <path d="M10 3.5v9m0 0l-3-3M10 12.5l3-3M4.5 15.5h11" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </a>
+                <button
+                  onClick={() => setSelected(null)}
+                  title="關閉"
+                  className="ml-0.5 p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
               {selIdx > 0 && (
                 <button
                   onClick={() => setSelected(filtered[selIdx - 1])}
@@ -253,54 +317,11 @@ export default function App() {
                 </button>
               )}
             </div>
-            <div className="p-4">
+            <div className="px-4 py-3">
               <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
               <p className="mt-1 text-xs text-zinc-500">
                 第 {selected.ep} 集 · {fmtTime(selected.t)}
               </p>
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                <button
-                  onClick={() =>
-                    copyImageToClipboard(BASE + selected.img)
-                      .then(() => showToast('已複製圖片 ✓'))
-                      .catch(() => showToast('複製失敗，改用下載吧'))
-                  }
-                  className="px-3 py-1.5 rounded-lg bg-pink-500/15 border border-pink-400/40 hover:bg-pink-500/25 transition-colors"
-                >
-                  複製圖片
-                </button>
-                {selected.text && (
-                  <button
-                    onClick={() =>
-                      navigator.clipboard.writeText(selected.text).then(() => showToast('已複製台詞 ✓'))
-                    }
-                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
-                  >
-                    複製台詞
-                  </button>
-                )}
-                <button
-                  onClick={() =>
-                    navigator.clipboard.writeText(location.href).then(() => showToast('已複製連結 ✓'))
-                  }
-                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
-                >
-                  複製連結
-                </button>
-                <a
-                  href={BASE + selected.img}
-                  download={`${selected.text || selected.id}.webp`}
-                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
-                >
-                  下載
-                </a>
-                <button
-                  onClick={() => setSelected(null)}
-                  className="ml-auto px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
-                >
-                  關閉
-                </button>
-              </div>
             </div>
           </div>
         </div>
