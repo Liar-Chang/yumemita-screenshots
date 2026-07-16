@@ -23,6 +23,13 @@ function fmtTime(t: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+/** 保留目前的搜尋/集數篩選，換成指向特定截圖的分享連結 */
+function shareUrl(id: string): string {
+  const p = new URLSearchParams(location.search)
+  p.set('id', id)
+  return `${location.origin}${location.pathname}?${p.toString()}`
+}
+
 function useToast(): [string, (m: string) => void] {
   const [msg, setMsg] = useState('')
   const timer = useRef<number>(0)
@@ -197,17 +204,72 @@ export default function App() {
         )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
           {filtered.slice(0, shown).map(i => (
-            <button
+            <div
               key={i.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelected(i)}
-              className="fade-in text-left rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5 transition-all group"
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSelected(i)
+                }
+              }}
+              className="fade-in text-left rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5 transition-all group cursor-pointer"
             >
-              <img
-                src={BASE + i.img}
-                alt={i.text || '場景截圖'}
-                loading="lazy"
-                className="w-full aspect-video object-cover bg-black/40"
-              />
+              <div className="relative">
+                <img
+                  src={BASE + i.img}
+                  alt={i.text || '場景截圖'}
+                  loading="lazy"
+                  className="w-full aspect-video object-cover bg-black/40"
+                />
+                <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-black/55 backdrop-blur-sm px-1 py-1">
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      copyImageToClipboard(BASE + i.img)
+                        .then(() => showToast('已複製圖片 ✓'))
+                        .catch(() => showToast('複製失敗，改用下載吧'))
+                    }}
+                    title="複製圖片"
+                    className="p-1 rounded-full hover:bg-white/25 transition-colors"
+                  >
+                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                      <rect x="3" y="4" width="14" height="12" rx="1.5" />
+                      <circle cx="7.3" cy="8.3" r="1.3" />
+                      <path d="M4 14.5l4-4 3 3 2-2 4 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      navigator.clipboard.writeText(shareUrl(i.id)).then(() => showToast('已複製連結 ✓'))
+                    }}
+                    title="複製連結"
+                    className="p-1 rounded-full hover:bg-white/25 transition-colors"
+                  >
+                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                      <path
+                        d="M8.5 11.5l3-3M7 12.5l-1.2 1.2a2.3 2.3 0 01-3.3-3.3L3.8 9.2M12.2 7.8L13.4 6.6a2.3 2.3 0 013.3 3.3L15.5 11"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <a
+                    href={BASE + i.img}
+                    download={`${i.text || i.id}.webp`}
+                    onClick={e => e.stopPropagation()}
+                    title="下載"
+                    className="p-1 rounded-full hover:bg-white/25 transition-colors"
+                  >
+                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                      <path d="M10 3.5v9m0 0l-3-3M10 12.5l3-3M4.5 15.5h11" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </a>
+                </div>
+              </div>
               <div className="p-2.5">
                 <p className={`text-sm leading-snug line-clamp-2 min-h-10 ${i.text ? '' : 'text-zinc-500 italic'}`}>
                   {i.text || `（${i.tags[0] ?? '場景'}）`}
@@ -216,7 +278,7 @@ export default function App() {
                   第 {i.ep} 集 · {fmtTime(i.t)}
                 </p>
               </div>
-            </button>
+            </div>
           ))}
         </div>
         <div ref={sentinel} className="h-1" />
