@@ -1,0 +1,15 @@
+# 依賴與建置產物
+node_modules/
+site/dist/
+__pycache__/
+*.pyc
+
+# 影片素材不進版控（字幕 .srt 與校對檔保留）
+素材/*.mp4
+素材/*.mkv
+素材/*.webm
+素材/temp/
+
+# 系統檔
+Thumbs.db
+Desktop.ini

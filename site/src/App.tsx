@@ -1,0 +1,323 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+type Item = {
+  id: string
+  ep: number
+  t: number
+  text: string
+  img: string
+  tags: string[]
+}
+
+const BASE = import.meta.env.BASE_URL
+const PAGE = 120
+
+/** 全半形/大小寫/空白 正規化，讓搜尋寬鬆一點 */
+function norm(s: string): string {
+  return s.normalize('NFKC').toLowerCase().replace(/\s+/g, '')
+}
+
+function fmtTime(t: number): string {
+  const m = Math.floor(t / 60)
+  const s = Math.floor(t % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function useToast(): [string, (m: string) => void] {
+  const [msg, setMsg] = useState('')
+  const timer = useRef<number>(0)
+  const show = (m: string) => {
+    setMsg(m)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setMsg(''), 1600)
+  }
+  return [msg, show]
+}
+
+async function copyImageToClipboard(url: string): Promise<void> {
+  const blob = await (await fetch(url)).blob()
+  const bmp = await createImageBitmap(blob)
+  const canvas = document.createElement('canvas')
+  canvas.width = bmp.width
+  canvas.height = bmp.height
+  canvas.getContext('2d')!.drawImage(bmp, 0, 0)
+  const png: Blob = await new Promise((res, rej) =>
+    canvas.toBlob(b => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'),
+  )
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+}
+
+export default function App() {
+  const [items, setItems] = useState<Item[] | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  // 直接從網址參數初始化（不能放 effect：StrictMode 下網址同步 effect 會先清掉參數）
+  const [q, setQ] = useState(() => new URLSearchParams(location.search).get('q') ?? '')
+  const [ep, setEp] = useState(() => Number(new URLSearchParams(location.search).get('ep')) || 0)
+  const [desc, setDesc] = useState(false)
+  const [shown, setShown] = useState(PAGE)
+  const [selected, setSelected] = useState<Item | null>(null)
+  const [toast, showToast] = useToast()
+  const sentinel = useRef<HTMLDivElement>(null)
+  const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
+
+  // 載入索引
+  useEffect(() => {
+    fetch(`${BASE}index/yumemita.json`)
+      .then(r => r.json())
+      .then(d => setItems(d.items))
+      .catch(() => setLoadError(true))
+  }, [])
+
+  // 開啟分享連結指定的截圖
+  useEffect(() => {
+    if (items && pendingId.current) {
+      const hit = items.find(i => i.id === pendingId.current)
+      pendingId.current = null
+      if (hit) setSelected(hit)
+    }
+  }, [items])
+
+  // 搜尋/篩選狀態 → 網址（可直接分享）
+  useEffect(() => {
+    const p = new URLSearchParams()
+    if (q) p.set('q', q)
+    if (ep) p.set('ep', String(ep))
+    if (selected) p.set('id', selected.id)
+    const qs = p.toString()
+    history.replaceState(null, '', qs ? `?${qs}` : location.pathname)
+  }, [q, ep, selected])
+
+  const episodes = useMemo(() => {
+    if (!items) return []
+    const count = new Map<number, number>()
+    for (const i of items) count.set(i.ep, (count.get(i.ep) ?? 0) + 1)
+    return [...count.entries()].sort((a, b) => a[0] - b[0])
+  }, [items])
+
+  const filtered = useMemo(() => {
+    if (!items) return []
+    const nq = norm(q)
+    const r = items.filter(
+      i =>
+        (ep === 0 || i.ep === ep) &&
+        (nq === '' || norm(i.text).includes(nq) || i.tags.some(t => norm(t).includes(nq))),
+    )
+    return r.sort((a, b) => (a.ep - b.ep || a.t - b.t) * (desc ? -1 : 1))
+  }, [items, q, ep, desc])
+
+  // 搜尋條件變動 → 重置分頁
+  useEffect(() => setShown(PAGE), [q, ep, desc])
+
+  // 無限捲動
+  useEffect(() => {
+    const el = sentinel.current
+    if (!el) return
+    const ob = new IntersectionObserver(
+      e => e[0].isIntersecting && setShown(n => n + PAGE),
+      { rootMargin: '600px' },
+    )
+    ob.observe(el)
+    return () => ob.disconnect()
+  }, [])
+
+  // Lightbox 鍵盤操作
+  useEffect(() => {
+    if (!selected) return
+    const idx = filtered.findIndex(i => i.id === selected.id)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null)
+      if (e.key === 'ArrowLeft' && idx > 0) setSelected(filtered[idx - 1])
+      if (e.key === 'ArrowRight' && idx >= 0 && idx < filtered.length - 1)
+        setSelected(filtered[idx + 1])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, filtered])
+
+  const selIdx = selected ? filtered.findIndex(i => i.id === selected.id) : -1
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="pt-10 pb-6 px-4 text-center">
+        <h1 className="text-3xl sm:text-4xl font-black tracking-wide bg-gradient-to-r from-pink-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent">
+          YUME∞MITA 截圖搜尋器
+        </h1>
+        <p className="mt-2 text-sm text-zinc-400">
+          BanG Dream! YUME∞MITA 台詞截圖搜尋——輸入關鍵字，或選擇集數瀏覽
+        </p>
+      </header>
+
+      {/* Controls */}
+      <div className="sticky top-0 z-20 bg-[#0b0b13]/90 backdrop-blur border-b border-white/5 px-4 py-3">
+        <div className="max-w-6xl mx-auto flex flex-wrap gap-2 items-center">
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="輸入關鍵字，例如：夢"
+            className="flex-1 min-w-48 rounded-xl bg-white/5 border border-white/10 px-4 py-2.5 outline-none focus:border-pink-400/60 focus:ring-2 focus:ring-pink-400/20 placeholder:text-zinc-500"
+          />
+          <select
+            value={ep}
+            onChange={e => setEp(Number(e.target.value))}
+            className="rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 outline-none focus:border-cyan-300/60 text-sm"
+          >
+            <option value={0} className="bg-zinc-900">全部集數</option>
+            {episodes.map(([n, c]) => (
+              <option key={n} value={n} className="bg-zinc-900">
+                第 {n} 集（{c}）
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => setDesc(d => !d)}
+            title="切換排序方向"
+            className="rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm hover:border-white/25 transition-colors"
+          >
+            {desc ? '時間 ↓' : '時間 ↑'}
+          </button>
+        </div>
+        {items && (
+          <div className="max-w-6xl mx-auto mt-2 text-xs text-zinc-500">
+            {q || ep !== 0 ? `找到 ${filtered.length} 張` : `共收錄 ${items.length} 張`}
+          </div>
+        )}
+      </div>
+
+      {/* Grid */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+        {loadError && (
+          <p className="text-center text-zinc-400 py-20">索引載入失敗，請重新整理再試。</p>
+        )}
+        {!items && !loadError && (
+          <p className="text-center text-zinc-500 py-20 animate-pulse">載入中…</p>
+        )}
+        {items && filtered.length === 0 && (
+          <p className="text-center text-zinc-500 py-20">找不到符合的截圖，換個關鍵字試試。</p>
+        )}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
+          {filtered.slice(0, shown).map(i => (
+            <button
+              key={i.id}
+              onClick={() => setSelected(i)}
+              className="fade-in text-left rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5 transition-all group"
+            >
+              <img
+                src={BASE + i.img}
+                alt={i.text || '場景截圖'}
+                loading="lazy"
+                className="w-full aspect-video object-cover bg-black/40"
+              />
+              <div className="p-2.5">
+                <p className={`text-sm leading-snug line-clamp-2 min-h-10 ${i.text ? '' : 'text-zinc-500 italic'}`}>
+                  {i.text || `（${i.tags[0] ?? '場景'}）`}
+                </p>
+                <p className="mt-1.5 text-[11px] text-zinc-500 group-hover:text-zinc-400">
+                  第 {i.ep} 集 · {fmtTime(i.t)}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+        <div ref={sentinel} className="h-1" />
+      </main>
+
+      {/* Lightbox */}
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="fade-in max-w-4xl w-full rounded-2xl overflow-hidden bg-[#14141f] border border-white/10 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="relative">
+              <img src={BASE + selected.img} alt={selected.text} className="w-full" />
+              {selIdx > 0 && (
+                <button
+                  onClick={() => setSelected(filtered[selIdx - 1])}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 size-10 rounded-full bg-black/50 hover:bg-black/75 text-lg"
+                  title="上一張（←）"
+                >
+                  ←
+                </button>
+              )}
+              {selIdx < filtered.length - 1 && (
+                <button
+                  onClick={() => setSelected(filtered[selIdx + 1])}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 size-10 rounded-full bg-black/50 hover:bg-black/75 text-lg"
+                  title="下一張（→）"
+                >
+                  →
+                </button>
+              )}
+            </div>
+            <div className="p-4">
+              <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                第 {selected.ep} 集 · {fmtTime(selected.t)}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                <button
+                  onClick={() =>
+                    copyImageToClipboard(BASE + selected.img)
+                      .then(() => showToast('已複製圖片 ✓'))
+                      .catch(() => showToast('複製失敗，改用下載吧'))
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-pink-500/15 border border-pink-400/40 hover:bg-pink-500/25 transition-colors"
+                >
+                  複製圖片
+                </button>
+                {selected.text && (
+                  <button
+                    onClick={() =>
+                      navigator.clipboard.writeText(selected.text).then(() => showToast('已複製台詞 ✓'))
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
+                  >
+                    複製台詞
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    navigator.clipboard.writeText(location.href).then(() => showToast('已複製連結 ✓'))
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
+                >
+                  複製連結
+                </button>
+                <a
+                  href={BASE + selected.img}
+                  download={`${selected.text || selected.id}.webp`}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
+                >
+                  下載
+                </a>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="ml-auto px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 transition-colors"
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-full bg-zinc-800 border border-white/15 text-sm shadow-lg fade-in">
+          {toast}
+        </div>
+      )}
+
+      <footer className="px-4 py-8 text-center text-xs text-zinc-600 leading-relaxed">
+        非官方粉絲網站，僅供交流使用。動畫截圖著作權屬 ©BanG Dream! Project／原權利人所有，
+        <br className="hidden sm:block" />
+        如權利方提出要求將立即配合下架。
+      </footer>
+    </div>
+  )
+}
