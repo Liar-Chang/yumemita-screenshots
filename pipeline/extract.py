@@ -33,6 +33,9 @@ LONG_LINE_SPAN = 6.0     # 台詞持續超過此秒數就多抽幾張
 WEBP_QUALITY = "82"
 OUT_WIDTH = 1280
 
+# ED 位置經第 1、2 集驗證固定不變，預設每集都排除（OP 每集時間不同，須用 --exclude 個別指定）
+DEFAULT_ED_START = 1310.0
+
 
 def find_bin(name: str) -> str:
     p = shutil.which(name)
@@ -119,8 +122,15 @@ def detect_scenes(video: Path) -> list[float]:
 
 # ---------- 抽幀計畫 ----------
 
-def plan_shots(events: list[dict], scenes: list[float], duration: float) -> list[dict]:
-    """回傳 [{t, text, tags}]，依時間排序。"""
+def plan_shots(events: list[dict], scenes: list[float], duration: float,
+               exclude: list[tuple[float, float]] | None = None) -> list[dict]:
+    """回傳 [{t, text, tags}]，依時間排序。exclude 範圍內的台詞會整句跳過（OP/ED 用）。"""
+    exclude = exclude or []
+
+    def in_excluded(t: float) -> bool:
+        return any(lo <= t <= hi for lo, hi in exclude)
+
+    events = [e for e in events if not in_excluded((e["start"] + e["end"]) / 2)]
     shots = []
 
     # 1) 台詞：中點抽 1 張，長句平均多抽
@@ -154,7 +164,8 @@ def plan_shots(events: list[dict], scenes: list[float], duration: float) -> list
                 picked.append(k)
                 k += GAP_FALLBACK_STEP
         for t in picked:
-            shots.append({"t": t, "text": "", "tags": ["場景"]})
+            if not in_excluded(t):
+                shots.append({"t": t, "text": "", "tags": ["場景"]})
 
     shots.sort(key=lambda s: s["t"])
     return shots
@@ -177,6 +188,10 @@ def main():
     ap.add_argument("--ep", required=True, type=int)
     ap.add_argument("--subs", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "site" / "public")
+    ap.add_argument("--exclude", default="",
+                     help='額外排除時間範圍（通常是 OP），格式 "起:訖,起:訖"，單位秒。例：--exclude 645:735')
+    ap.add_argument("--no-default-ed", action="store_true",
+                     help=f"不要自動排除 ED（預設從 {DEFAULT_ED_START:.0f}s 到結尾都排除）")
     args = ap.parse_args()
 
     if not args.video.exists():
@@ -195,8 +210,16 @@ def main():
     events = parse_subs(args.subs) if args.subs else []
     print(f"  台詞 {len(events)} 句" if events else "  （無字幕檔，走純場景偵測模式）")
 
+    exclude_ranges = [] if args.no_default_ed else [(DEFAULT_ED_START, duration)]
+    if args.exclude:
+        for part in args.exclude.split(","):
+            lo, hi = part.split(":")
+            exclude_ranges.append((float(lo), float(hi)))
+    if exclude_ranges:
+        print(f"  排除範圍：{', '.join(f'{lo:.0f}-{hi:.0f}s' for lo, hi in exclude_ranges)}")
+
     scenes = detect_scenes(args.video)
-    shots = plan_shots(events, scenes, duration)
+    shots = plan_shots(events, scenes, duration, exclude=exclude_ranges)
 
     # 使用者刪過的圖不再復活（見 prune.py）
     exclude_path = Path(__file__).parent.parent / "素材" / "排除清單.json"

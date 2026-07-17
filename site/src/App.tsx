@@ -23,6 +23,13 @@ function fmtTime(t: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+/** OP/ED 是跨集共用的獨立分類，用特殊 ep 值標記（-1=OP，1000=ED；0 保留給「全部集數」） */
+function epLabel(ep: number): string {
+  if (ep === -1) return 'OP'
+  if (ep === 1000) return 'ED'
+  return `第 ${ep} 集`
+}
+
 /** 保留目前的搜尋/集數篩選，換成指向特定截圖的分享連結 */
 function shareUrl(id: string): string {
   const p = new URLSearchParams(location.search)
@@ -172,7 +179,7 @@ export default function App() {
             <option value={0} className="bg-zinc-900">全部集數</option>
             {episodes.map(([n, c]) => (
               <option key={n} value={n} className="bg-zinc-900">
-                第 {n} 集（{c}）
+                {epLabel(n)}（{c}）
               </option>
             ))}
           </select>
@@ -275,7 +282,7 @@ export default function App() {
                   {i.text || `（${i.tags[0] ?? '場景'}）`}
                 </p>
                 <p className="mt-1.5 text-[11px] text-zinc-500 group-hover:text-zinc-400">
-                  第 {i.ep} 集 · {fmtTime(i.t)}
+                  {epLabel(i.ep)} · {fmtTime(i.t)}
                 </p>
               </div>
             </div>
@@ -382,7 +389,7 @@ export default function App() {
             <div className="px-4 py-3">
               <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
               <p className="mt-1 text-xs text-zinc-500">
-                第 {selected.ep} 集 · {fmtTime(selected.t)}
+                {epLabel(selected.ep)} · {fmtTime(selected.t)}
               </p>
             </div>
           </div>

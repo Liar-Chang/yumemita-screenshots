@@ -2,12 +2,14 @@
 """週更一鍵腳本：OCR（如需要）→ 抽圖 → 更新索引。
 
 用法：
-    python update_ep.py --video "D:\\下載\\第02話.mp4" --ep 2
-    python update_ep.py --video ... --ep 2 --subs 已有字幕.srt   # 跳過 OCR
+    python update_ep.py --video "D:\\下載\\第03話.mp4" --ep 3
+    python update_ep.py --video ... --ep 3 --subs 已有字幕.srt      # 跳過 OCR
+    python update_ep.py --video ... --ep 3 --exclude 620:700        # 該集 OP 的時間範圍
 
 流程：
     1. 若未指定 --subs 且 素材/epNN.srt 不存在 → 跑 OCR（約 15 分鐘）
-    2. 跑抽圖管線（約 5~10 分鐘）
+    2. 跑抽圖管線（約 5~10 分鐘）——ED 固定自動排除；OP 每集時間不同，
+       需要用 --exclude 指定（開跑前先看一眼影片抓概略時間即可，不用抓很準）
     3. 提醒校對 素材/epNN_review.txt，改完可重跑抽圖
 """
 import argparse
@@ -30,6 +32,7 @@ def main():
     ap.add_argument("--video", required=True, type=Path)
     ap.add_argument("--ep", required=True, type=int)
     ap.add_argument("--subs", type=Path, default=None)
+    ap.add_argument("--exclude", default="", help='該集 OP 時間範圍，格式 "起:訖"（秒）')
     args = ap.parse_args()
 
     if not args.video.exists():
@@ -42,10 +45,13 @@ def main():
             "--video", str(args.video), "--out", str(subs),
         ])
 
-    run_step("抽圖與索引", [
+    extract_cmd = [
         str(ROOT / "pipeline" / "extract.py"),
         "--video", str(args.video), "--ep", str(args.ep), "--subs", str(subs),
-    ])
+    ]
+    if args.exclude:
+        extract_cmd += ["--exclude", args.exclude]
+    run_step("抽圖與索引", extract_cmd)
 
     review = subs.with_name(subs.stem + "_review.txt")
     print(f"""
