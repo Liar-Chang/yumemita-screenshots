@@ -3,13 +3,14 @@
 
 用法：
     python update_ep.py --video "D:\\下載\\第03話.mp4" --ep 3
-    python update_ep.py --video ... --ep 3 --subs 已有字幕.srt      # 跳過 OCR
-    python update_ep.py --video ... --ep 3 --exclude 620:700        # 該集 OP 的時間範圍
+    python update_ep.py --video ... --ep 3 --subs 已有字幕.srt              # 跳過 OCR
+    python update_ep.py --video ... --ep 3 --exclude 355:510,1310:1420     # OP+ED 時間範圍
 
 流程：
     1. 若未指定 --subs 且 素材/epNN.srt 不存在 → 跑 OCR（約 15 分鐘）
-    2. 跑抽圖管線（約 5~10 分鐘）——ED 固定自動排除；OP 每集時間不同，
-       需要用 --exclude 指定（開跑前先看一眼影片抓概略時間即可，不用抓很準）
+    2. 跑抽圖管線（約 5~10 分鐘）——OP、ED 每集時間都可能不同（別假設跟上一集
+       一樣！），開跑前務必用字幕最長的幾句當線索、抽幾張畫面確認範圍後再用
+       --exclude 指定；沒把握就先不排除，寧可留一點重複也不要誤刪真實劇情
     3. 提醒校對 素材/epNN_review.txt，改完可重跑抽圖
 """
 import argparse
@@ -32,7 +33,8 @@ def main():
     ap.add_argument("--video", required=True, type=Path)
     ap.add_argument("--ep", required=True, type=int)
     ap.add_argument("--subs", type=Path, default=None)
-    ap.add_argument("--exclude", default="", help='該集 OP 時間範圍，格式 "起:訖"（秒）')
+    ap.add_argument("--exclude", default="",
+                     help='該集 OP/ED 時間範圍，格式 "起:訖,起:訖"（秒），例：355:510,1310:1420')
     args = ap.parse_args()
 
     if not args.video.exists():

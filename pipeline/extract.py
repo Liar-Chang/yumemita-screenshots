@@ -33,8 +33,9 @@ LONG_LINE_SPAN = 6.0     # 台詞持續超過此秒數就多抽幾張
 WEBP_QUALITY = "82"
 OUT_WIDTH = 1280
 
-# ED 位置經第 1、2 集驗證固定不變，預設每集都排除（OP 每集時間不同，須用 --exclude 個別指定）
-DEFAULT_ED_START = 1310.0
+# 注意：ED 位置「不」保證每集固定！第1、2集剛好都在 21:50-結尾，但第3集的 ED
+# 卻出現在 18:37-20:00（21:50 附近反而是正常內容）。OP/ED 每集都要各自確認時間、
+# 用 --exclude 指定，不能沿用前幾集的數字，也不要自動套用預設值。
 
 
 def find_bin(name: str) -> str:
@@ -189,9 +190,8 @@ def main():
     ap.add_argument("--subs", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "site" / "public")
     ap.add_argument("--exclude", default="",
-                     help='額外排除時間範圍（通常是 OP），格式 "起:訖,起:訖"，單位秒。例：--exclude 645:735')
-    ap.add_argument("--no-default-ed", action="store_true",
-                     help=f"不要自動排除 ED（預設從 {DEFAULT_ED_START:.0f}s 到結尾都排除）")
+                     help='排除的 OP/ED 時間範圍，格式 "起:訖,起:訖"，單位秒。'
+                          '例：--exclude 355:510,1310:1420（OP 和 ED 都要指定，每集位置可能不同）')
     args = ap.parse_args()
 
     if not args.video.exists():
@@ -210,7 +210,7 @@ def main():
     events = parse_subs(args.subs) if args.subs else []
     print(f"  台詞 {len(events)} 句" if events else "  （無字幕檔，走純場景偵測模式）")
 
-    exclude_ranges = [] if args.no_default_ed else [(DEFAULT_ED_START, duration)]
+    exclude_ranges = []
     if args.exclude:
         for part in args.exclude.split(","):
             lo, hi = part.split(":")
