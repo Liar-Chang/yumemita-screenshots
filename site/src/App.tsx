@@ -51,18 +51,49 @@ function useToast(): [string, (m: string) => void] {
 const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 const CAN_EDIT = IS_LOCAL && 'showDirectoryPicker' in window
 
-/** 編輯模式：用 File System Access API 直接讀寫本機的 site/public/index/yumemita.json */
-async function pickPublicDir(): Promise<FileSystemDirectoryHandle> {
-  const dir = await (window as any).showDirectoryPicker({ id: 'yumemita-public' })
-  await dir.getDirectoryHandle('index') // 驗證選對資料夾（要選 site/public，不是 site 或 img）
+/** 編輯模式：用 File System Access API 直接讀寫本機的專案資料夾（改台詞、刪圖都要用到） */
+async function pickProjectRoot(): Promise<FileSystemDirectoryHandle> {
+  const dir = await (window as any).showDirectoryPicker({ id: 'yumemita-root' })
+  // 驗證選對資料夾（要選專案根目錄，同時有 site 跟 素材 兩層才對）
+  await dir.getDirectoryHandle('site')
+  await dir.getDirectoryHandle('素材')
   return dir
 }
 
-async function writeIndex(dir: FileSystemDirectoryHandle, items: Item[]): Promise<void> {
-  const indexDir = await dir.getDirectoryHandle('index')
+async function getPublicDir(root: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle> {
+  const site = await root.getDirectoryHandle('site')
+  return site.getDirectoryHandle('public')
+}
+
+async function writeIndex(root: FileSystemDirectoryHandle, items: Item[]): Promise<void> {
+  const publicDir = await getPublicDir(root)
+  const indexDir = await publicDir.getDirectoryHandle('index')
   const fileHandle = await indexDir.getFileHandle('yumemita.json')
   const writable = await (fileHandle as any).createWritable()
   await writable.write(JSON.stringify({ series: 'yumemita', items }))
+  await writable.close()
+}
+
+/** 實際刪掉圖片檔案，並記入排除清單（跟 prune.py 用同一份檔案，重跑管線不會復活） */
+async function deleteImageFile(root: FileSystemDirectoryHandle, item: Item): Promise<void> {
+  const parts = item.img.split('/') // "img/e01/0042.webp" -> ["img","e01","0042.webp"]
+  const publicDir = await getPublicDir(root)
+  let dir = publicDir
+  for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
+  await (dir as any).removeEntry(parts[parts.length - 1])
+
+  const 素材 = await root.getDirectoryHandle('素材')
+  let exclude: { ep: number; t: number; text: string }[] = []
+  try {
+    const fh = await 素材.getFileHandle('排除清單.json')
+    exclude = JSON.parse(await (await fh.getFile()).text())
+  } catch {
+    // 檔案不存在就從空清單開始
+  }
+  exclude.push({ ep: item.ep, t: item.t, text: item.text.slice(0, 20) })
+  const fh = await 素材.getFileHandle('排除清單.json', { create: true })
+  const writable = await (fh as any).createWritable()
+  await writable.write(JSON.stringify(exclude, null, 1))
   await writable.close()
 }
 
@@ -90,7 +121,7 @@ export default function App() {
   const [selected, setSelected] = useState<Item | null>(null)
   const [toast, showToast] = useToast()
   const [editMode, setEditMode] = useState(false)
-  const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null)
   const [dirty, setDirty] = useState(false)
   const sentinel = useRef<HTMLDivElement>(null)
   const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
@@ -106,11 +137,11 @@ export default function App() {
       setEditMode(false)
       return
     }
-    if (!dirHandle) {
+    if (!rootHandle) {
       try {
-        setDirHandle(await pickPublicDir())
+        setRootHandle(await pickProjectRoot())
       } catch {
-        showToast('未選擇資料夾')
+        showToast('未選擇資料夾，或選錯了（要選專案根目錄）')
         return
       }
     }
@@ -118,13 +149,28 @@ export default function App() {
   }
 
   const saveChanges = async () => {
-    if (!dirHandle || !items) return
+    if (!rootHandle || !items) return
     try {
-      await writeIndex(dirHandle, items)
+      await writeIndex(rootHandle, items)
       setDirty(false)
       showToast('已儲存到本機 ✓ 記得跑刪圖同步發佈')
     } catch {
       showToast('儲存失敗，請確認資料夾權限')
+    }
+  }
+
+  const deleteImage = async (item: Item) => {
+    if (!rootHandle) return
+    if (!window.confirm(`確定要刪除這張圖嗎？\n${item.text || '（無文字）'}\n此動作無法復原。`)) return
+    try {
+      await deleteImageFile(rootHandle, item)
+      const next = (items ?? []).filter(x => x.id !== item.id)
+      setItems(next)
+      setSelected(prev => (prev && prev.id === item.id ? null : prev))
+      await writeIndex(rootHandle, next)
+      showToast('已刪除 ✓ 記得跑刪圖同步發佈')
+    } catch {
+      showToast('刪除失敗，請確認資料夾權限')
     }
   }
 
@@ -247,7 +293,7 @@ export default function App() {
           {CAN_EDIT && (
             <button
               onClick={toggleEditMode}
-              title="開啟後可直接編輯台詞文字，存檔會寫回本機檔案"
+              title="開啟後可直接編輯台詞、刪除圖片，會寫回本機檔案（選資料夾時請選專案根目錄）"
               className={`rounded-xl px-3 py-2.5 text-sm border transition-colors ${
                 editMode
                   ? 'bg-pink-500/20 border-pink-400/50 text-pink-200'
@@ -350,6 +396,20 @@ export default function App() {
                       <path d="M10 3.5v9m0 0l-3-3M10 12.5l3-3M4.5 15.5h11" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </a>
+                  {editMode && (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        deleteImage(i)
+                      }}
+                      title="刪除這張圖"
+                      className="p-1 rounded-full hover:bg-red-500/40 transition-colors"
+                    >
+                      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                        <path d="M4 5.5h12M8 5.5V4h4v1.5M5.5 5.5l.7 10a1 1 0 001 .9h5.6a1 1 0 001-.9l.7-10" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="p-2.5">
@@ -443,6 +503,17 @@ export default function App() {
                     <path d="M10 3.5v9m0 0l-3-3M10 12.5l3-3M4.5 15.5h11" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </a>
+                {editMode && (
+                  <button
+                    onClick={() => deleteImage(selected)}
+                    title="刪除這張圖"
+                    className="p-1.5 rounded-full hover:bg-red-500/40 transition-colors"
+                  >
+                    <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                      <path d="M4 5.5h12M8 5.5V4h4v1.5M5.5 5.5l.7 10a1 1 0 001 .9h5.6a1 1 0 001-.9l.7-10" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   onClick={() => setSelected(null)}
                   title="關閉"
