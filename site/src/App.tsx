@@ -74,14 +74,20 @@ async function writeIndex(root: FileSystemDirectoryHandle, items: Item[]): Promi
   await writable.close()
 }
 
-/** 實際刪掉圖片檔案，並記入排除清單（跟 prune.py 用同一份檔案，重跑管線不會復活） */
-async function deleteImageFile(root: FileSystemDirectoryHandle, item: Item): Promise<void> {
-  const parts = item.img.split('/') // "img/e01/0042.webp" -> ["img","e01","0042.webp"]
+/** 刪掉單一圖片檔案（不處理索引/排除清單，給批次刪除共用） */
+async function removeImageFile(root: FileSystemDirectoryHandle, img: string): Promise<void> {
+  const parts = img.split('/') // "img/e01/0042.webp" -> ["img","e01","0042.webp"]
   const publicDir = await getPublicDir(root)
   let dir = publicDir
   for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
   await (dir as any).removeEntry(parts[parts.length - 1])
+}
 
+/** 記入排除清單（跟 prune.py 用同一份檔案，重跑管線不會復活），一次可以加多筆 */
+async function appendExcludeList(
+  root: FileSystemDirectoryHandle,
+  entries: { ep: number; t: number; text: string }[],
+): Promise<void> {
   const 素材 = await root.getDirectoryHandle('素材')
   let exclude: { ep: number; t: number; text: string }[] = []
   try {
@@ -90,7 +96,7 @@ async function deleteImageFile(root: FileSystemDirectoryHandle, item: Item): Pro
   } catch {
     // 檔案不存在就從空清單開始
   }
-  exclude.push({ ep: item.ep, t: item.t, text: item.text.slice(0, 20) })
+  exclude.push(...entries)
   const fh = await 素材.getFileHandle('排除清單.json', { create: true })
   const writable = await (fh as any).createWritable()
   await writable.write(JSON.stringify(exclude, null, 1))
@@ -123,6 +129,7 @@ export default function App() {
   const [editMode, setEditMode] = useState(false)
   const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const sentinel = useRef<HTMLDivElement>(null)
   const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
 
@@ -135,6 +142,7 @@ export default function App() {
   const toggleEditMode = async () => {
     if (editMode) {
       setEditMode(false)
+      setSelectedIds(new Set())
       return
     }
     if (!rootHandle) {
@@ -159,11 +167,21 @@ export default function App() {
     }
   }
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const deleteImage = async (item: Item) => {
     if (!rootHandle) return
     if (!window.confirm(`確定要刪除這張圖嗎？\n${item.text || '（無文字）'}\n此動作無法復原。`)) return
     try {
-      await deleteImageFile(rootHandle, item)
+      await removeImageFile(rootHandle, item.img)
+      await appendExcludeList(rootHandle, [{ ep: item.ep, t: item.t, text: item.text.slice(0, 20) }])
       const next = (items ?? []).filter(x => x.id !== item.id)
       setItems(next)
       setSelected(prev => (prev && prev.id === item.id ? null : prev))
@@ -171,6 +189,27 @@ export default function App() {
       showToast('已刪除 ✓ 記得跑刪圖同步發佈')
     } catch {
       showToast('刪除失敗，請確認資料夾權限')
+    }
+  }
+
+  const deleteSelected = async () => {
+    if (!rootHandle || !items || selectedIds.size === 0) return
+    const targets = items.filter(x => selectedIds.has(x.id))
+    if (!window.confirm(`確定要刪除這 ${targets.length} 張圖嗎？此動作無法復原。`)) return
+    try {
+      for (const item of targets) await removeImageFile(rootHandle, item.img)
+      await appendExcludeList(
+        rootHandle,
+        targets.map(item => ({ ep: item.ep, t: item.t, text: item.text.slice(0, 20) })),
+      )
+      const next = items.filter(x => !selectedIds.has(x.id))
+      setItems(next)
+      setSelected(prev => (prev && selectedIds.has(prev.id) ? null : prev))
+      setSelectedIds(new Set())
+      await writeIndex(rootHandle, next)
+      showToast(`已刪除 ${targets.length} 張 ✓ 記得跑刪圖同步發佈`)
+    } catch {
+      showToast('刪除失敗，請確認資料夾權限（可能部分已刪除，建議重新整理確認）')
     }
   }
 
@@ -311,6 +350,14 @@ export default function App() {
               儲存變更
             </button>
           )}
+          {editMode && selectedIds.size > 0 && (
+            <button
+              onClick={deleteSelected}
+              className="rounded-xl px-3 py-2.5 text-sm bg-red-500/20 border border-red-400/50 text-red-200 hover:bg-red-500/30 transition-colors"
+            >
+              刪除已選 {selectedIds.size} 張
+            </button>
+          )}
         </div>
         {items && (
           <div className="max-w-6xl mx-auto mt-2 text-xs text-zinc-500">
@@ -343,7 +390,11 @@ export default function App() {
                   setSelected(i)
                 }
               }}
-              className="fade-in text-left rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5 transition-all group cursor-pointer"
+              className={`fade-in text-left rounded-xl overflow-hidden bg-white/5 border transition-all group cursor-pointer ${
+                selectedIds.has(i.id)
+                  ? 'border-pink-400 ring-2 ring-pink-400/50'
+                  : 'border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5'
+              }`}
             >
               <div className="relative">
                 <img
@@ -352,6 +403,26 @@ export default function App() {
                   loading="lazy"
                   className="w-full aspect-video object-cover bg-black/40"
                 />
+                {editMode && (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      toggleSelect(i.id)
+                    }}
+                    title="選取（可批次刪除）"
+                    className={`absolute top-1.5 left-1.5 size-6 rounded-md border flex items-center justify-center transition-colors ${
+                      selectedIds.has(i.id)
+                        ? 'bg-pink-500 border-pink-400'
+                        : 'bg-black/50 border-white/40 hover:border-white/70'
+                    }`}
+                  >
+                    {selectedIds.has(i.id) && (
+                      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="white" strokeWidth={2.4}>
+                        <path d="M4 10.5l4 4 8-9" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                )}
                 <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-black/55 backdrop-blur-sm px-1 py-1">
                   <button
                     onClick={e => {
