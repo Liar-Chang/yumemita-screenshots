@@ -48,6 +48,24 @@ function useToast(): [string, (m: string) => void] {
   return [msg, show]
 }
 
+const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+const CAN_EDIT = IS_LOCAL && 'showDirectoryPicker' in window
+
+/** 編輯模式：用 File System Access API 直接讀寫本機的 site/public/index/yumemita.json */
+async function pickPublicDir(): Promise<FileSystemDirectoryHandle> {
+  const dir = await (window as any).showDirectoryPicker({ id: 'yumemita-public' })
+  await dir.getDirectoryHandle('index') // 驗證選對資料夾（要選 site/public，不是 site 或 img）
+  return dir
+}
+
+async function writeIndex(dir: FileSystemDirectoryHandle, items: Item[]): Promise<void> {
+  const indexDir = await dir.getDirectoryHandle('index')
+  const fileHandle = await indexDir.getFileHandle('yumemita.json')
+  const writable = await (fileHandle as any).createWritable()
+  await writable.write(JSON.stringify({ series: 'yumemita', items }))
+  await writable.close()
+}
+
 async function copyImageToClipboard(url: string): Promise<void> {
   const blob = await (await fetch(url)).blob()
   const bmp = await createImageBitmap(blob)
@@ -71,8 +89,44 @@ export default function App() {
   const [shown, setShown] = useState(PAGE)
   const [selected, setSelected] = useState<Item | null>(null)
   const [toast, showToast] = useToast()
+  const [editMode, setEditMode] = useState(false)
+  const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  const [dirty, setDirty] = useState(false)
   const sentinel = useRef<HTMLDivElement>(null)
   const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
+
+  const updateText = (id: string, text: string) => {
+    setItems(prev => prev && prev.map(x => (x.id === id ? { ...x, text } : x)))
+    setSelected(prev => (prev && prev.id === id ? { ...prev, text } : prev))
+    setDirty(true)
+  }
+
+  const toggleEditMode = async () => {
+    if (editMode) {
+      setEditMode(false)
+      return
+    }
+    if (!dirHandle) {
+      try {
+        setDirHandle(await pickPublicDir())
+      } catch {
+        showToast('未選擇資料夾')
+        return
+      }
+    }
+    setEditMode(true)
+  }
+
+  const saveChanges = async () => {
+    if (!dirHandle || !items) return
+    try {
+      await writeIndex(dirHandle, items)
+      setDirty(false)
+      showToast('已儲存到本機 ✓ 記得跑刪圖同步發佈')
+    } catch {
+      showToast('儲存失敗，請確認資料夾權限')
+    }
+  }
 
   // 載入索引
   useEffect(() => {
@@ -190,6 +244,27 @@ export default function App() {
           >
             {desc ? '時間 ↓' : '時間 ↑'}
           </button>
+          {CAN_EDIT && (
+            <button
+              onClick={toggleEditMode}
+              title="開啟後可直接編輯台詞文字，存檔會寫回本機檔案"
+              className={`rounded-xl px-3 py-2.5 text-sm border transition-colors ${
+                editMode
+                  ? 'bg-pink-500/20 border-pink-400/50 text-pink-200'
+                  : 'bg-white/5 border-white/10 hover:border-white/25'
+              }`}
+            >
+              {editMode ? '編輯模式中' : '編輯模式'}
+            </button>
+          )}
+          {editMode && dirty && (
+            <button
+              onClick={saveChanges}
+              className="rounded-xl px-3 py-2.5 text-sm bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/30 transition-colors"
+            >
+              儲存變更
+            </button>
+          )}
         </div>
         {items && (
           <div className="max-w-6xl mx-auto mt-2 text-xs text-zinc-500">
@@ -278,9 +353,20 @@ export default function App() {
                 </div>
               </div>
               <div className="p-2.5">
-                <p className={`text-sm leading-snug line-clamp-2 min-h-10 ${i.text ? '' : 'text-zinc-500 italic'}`}>
-                  {i.text || `（${i.tags[0] ?? '場景'}）`}
-                </p>
+                {editMode ? (
+                  <textarea
+                    value={i.text}
+                    onChange={e => updateText(i.id, e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    placeholder="（無文字，可輸入台詞或描述）"
+                    rows={2}
+                    className="w-full resize-none rounded-lg bg-black/30 border border-pink-400/30 px-2 py-1 text-sm leading-snug outline-none focus:border-pink-400/70"
+                  />
+                ) : (
+                  <p className={`text-sm leading-snug line-clamp-2 min-h-10 ${i.text ? '' : 'text-zinc-500 italic'}`}>
+                    {i.text || `（${i.tags[0] ?? '場景'}）`}
+                  </p>
+                )}
                 <p className="mt-1.5 text-[11px] text-zinc-500 group-hover:text-zinc-400">
                   {epLabel(i.ep)} · {fmtTime(i.t)}
                 </p>
@@ -387,7 +473,17 @@ export default function App() {
               )}
             </div>
             <div className="px-4 py-3">
-              <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
+              {editMode ? (
+                <textarea
+                  value={selected.text}
+                  onChange={e => updateText(selected.id, e.target.value)}
+                  placeholder="（無文字，可輸入台詞或描述）"
+                  rows={2}
+                  className="w-full resize-none rounded-lg bg-black/30 border border-pink-400/30 px-3 py-2 text-base outline-none focus:border-pink-400/70"
+                />
+              ) : (
+                <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
+              )}
               <p className="mt-1 text-xs text-zinc-500">
                 {epLabel(selected.ep)} · {fmtTime(selected.t)}
               </p>
