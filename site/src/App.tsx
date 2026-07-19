@@ -65,12 +65,16 @@ async function getPublicDir(root: FileSystemDirectoryHandle): Promise<FileSystem
   return site.getDirectoryHandle('public')
 }
 
-async function writeIndex(root: FileSystemDirectoryHandle, items: Item[]): Promise<void> {
+async function writeIndex(
+  root: FileSystemDirectoryHandle,
+  items: Item[],
+  draftEpisodes: number[],
+): Promise<void> {
   const publicDir = await getPublicDir(root)
   const indexDir = await publicDir.getDirectoryHandle('index')
   const fileHandle = await indexDir.getFileHandle('yumemita.json')
   const writable = await (fileHandle as any).createWritable()
-  await writable.write(JSON.stringify({ series: 'yumemita', items }))
+  await writable.write(JSON.stringify({ series: 'yumemita', items, draftEpisodes }))
   await writable.close()
 }
 
@@ -130,6 +134,7 @@ export default function App() {
   const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null)
   const [dirty, setDirty] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [draftEpisodes, setDraftEpisodes] = useState<number[]>([])
   const sentinel = useRef<HTMLDivElement>(null)
   const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
 
@@ -159,12 +164,17 @@ export default function App() {
   const saveChanges = async () => {
     if (!rootHandle || !items) return
     try {
-      await writeIndex(rootHandle, items)
+      await writeIndex(rootHandle, items, draftEpisodes)
       setDirty(false)
       showToast('已儲存到本機 ✓ 記得跑刪圖同步發佈')
     } catch {
       showToast('儲存失敗，請確認資料夾權限')
     }
+  }
+
+  const toggleDraft = (n: number) => {
+    setDraftEpisodes(prev => (prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]))
+    setDirty(true)
   }
 
   const toggleSelect = (id: string) => {
@@ -185,7 +195,7 @@ export default function App() {
       const next = (items ?? []).filter(x => x.id !== item.id)
       setItems(next)
       setSelected(prev => (prev && prev.id === item.id ? null : prev))
-      await writeIndex(rootHandle, next)
+      await writeIndex(rootHandle, next, draftEpisodes)
       showToast('已刪除 ✓ 記得跑刪圖同步發佈')
     } catch {
       showToast('刪除失敗，請確認資料夾權限')
@@ -206,18 +216,22 @@ export default function App() {
       setItems(next)
       setSelected(prev => (prev && selectedIds.has(prev.id) ? null : prev))
       setSelectedIds(new Set())
-      await writeIndex(rootHandle, next)
+      await writeIndex(rootHandle, next, draftEpisodes)
       showToast(`已刪除 ${targets.length} 張 ✓ 記得跑刪圖同步發佈`)
     } catch {
       showToast('刪除失敗，請確認資料夾權限（可能部分已刪除，建議重新整理確認）')
     }
   }
 
-  // 載入索引
+  // 載入索引：本機一律看全部（含草稿集），正式網站自動濾掉草稿集
   useEffect(() => {
     fetch(`${BASE}index/yumemita.json`)
       .then(r => r.json())
-      .then(d => setItems(d.items))
+      .then(d => {
+        const draft: number[] = d.draftEpisodes ?? []
+        setDraftEpisodes(draft)
+        setItems(IS_LOCAL ? d.items : d.items.filter((i: Item) => !draft.includes(i.ep)))
+      })
       .catch(() => setLoadError(true))
   }, [])
 
@@ -359,6 +373,28 @@ export default function App() {
             </button>
           )}
         </div>
+        {editMode && (
+          <div className="max-w-6xl mx-auto mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-zinc-500">正式網站公開狀態：</span>
+            {episodes
+              .filter(([n]) => n !== -1 && n !== 1000)
+              .map(([n]) => (
+                <button
+                  key={n}
+                  onClick={() => toggleDraft(n)}
+                  title="點一下切換這一集在正式網站上是否顯示（本機一律看得到）"
+                  className={`px-2 py-1 rounded-md border transition-colors ${
+                    draftEpisodes.includes(n)
+                      ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
+                      : 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300'
+                  }`}
+                >
+                  {epLabel(n)}
+                  {draftEpisodes.includes(n) ? ' 草稿' : ' 公開'}
+                </button>
+              ))}
+          </div>
+        )}
         {items && (
           <div className="max-w-6xl mx-auto mt-2 text-xs text-zinc-500">
             {q || ep !== 0 ? `找到 ${filtered.length} 張` : `共收錄 ${items.length} 張`}
