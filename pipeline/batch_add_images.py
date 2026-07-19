@@ -5,11 +5,14 @@
 逐一比對找出畫面最像的候選幀，取得時間點；再從字幕檔找該時間點附近最近的
 台詞當作預設文字（可能不完全準，之後用網站的編輯模式看著圖修正即可）。
 
-用法：
-    python batch_add_images.py --folder "C:\\...\\Capture" --video 素材\\ep01.mp4 --ep 1
-    python batch_add_images.py --folder ... --video ... --ep 1 --subs 素材\\ep01.srt
+全自動用法（推薦）——不指定集數/影片，自動從檔名判斷、自動找對應影片：
+    python batch_add_images.py --folder "C:\\...\\Capture"
 
-比對信心不足的截圖不會自動加入，會列在最後提醒你手動用 add_image.py 處理。
+手動指定（檔名判斷不出集數，或要處理 OP/ED 時用）：
+    python batch_add_images.py --folder "C:\\...\\Capture" --video 素材\\ep01.mp4 --ep 1
+
+已經成功匯入過的截圖（用檔名比對）不會重複處理，資料夾可以一直往裡面加新截圖，
+重跑只會處理新的。比對信心不足的截圖不會自動加入，會列在最後提醒手動處理。
 """
 import argparse
 import json
@@ -33,9 +36,18 @@ OUT_WIDTH = 1280
 SAMPLE_FPS = 1.0          # 候選幀採樣頻率
 THUMB_SIZE = (64, 36)     # 比對用縮圖大小（寬,高）
 GOOD_DIFF = 15.0          # 平均像素差在這以下才算是有信心的匹配（0~255 尺度）
+NEARBY_SECONDS = 3.0      # 候選幀時間差在這以內都算「同一幕」，不當作互相競爭的候選
 CAPTION_WINDOW = 2.0      # 匹配時間點前後幾秒內找字幕當建議文字
 EP_ALIASES = {"op": -1, "ed": 1000}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+VIDEO_EXTS = {".mp4", ".mkv", ".webm"}
+
+# 自動找影片時要搜尋的資料夾（有新的下載資料夾就加進來）
+VIDEO_SEARCH_DIRS = [
+    Path.home() / "Videos" / "iFlyDown Video",
+    Path.home() / "Videos" / "video",
+]
+EP_PATTERN = re.compile(r"第(\d+)話")
 
 
 def find_bin(name: str) -> str:
@@ -70,6 +82,22 @@ def ep_folder(ep: int) -> str:
     return f"e{ep:02d}"
 
 
+def detect_episode(filename: str) -> int | None:
+    m = EP_PATTERN.search(filename)
+    return int(m.group(1)) if m else None
+
+
+def find_video_for_episode(ep: int) -> Path | None:
+    tag = f"第{ep:02d}話"
+    for d in VIDEO_SEARCH_DIRS:
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            if f.suffix.lower() in VIDEO_EXTS and tag in f.name:
+                return f
+    return None
+
+
 def build_candidate_frames(video: Path, work: Path) -> np.ndarray:
     """回傳 shape (N, H, W) 的 float32 灰階縮圖陣列，index i 對應第 i 秒。"""
     print(f"  掃描來源影片建立比對資料庫（{SAMPLE_FPS}fps，約需 1~2 分鐘）...")
@@ -87,9 +115,6 @@ def build_candidate_frames(video: Path, work: Path) -> np.ndarray:
     arr = np.stack([np.asarray(Image.open(f).convert("L"), dtype=np.float32) for f in frames])
     print(f"  候選幀共 {len(frames)} 張")
     return arr
-
-
-NEARBY_SECONDS = 3.0  # 候選幀時間差在這以內都算「同一幕」，不當作互相競爭的候選
 
 
 def match_timestamp(shot_path: Path, candidates: np.ndarray) -> tuple[float, float, float]:
@@ -127,34 +152,13 @@ def nearest_caption(t: float, events: list[dict]) -> str:
     return ""
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--folder", required=True, type=Path)
-    ap.add_argument("--video", required=True, type=Path)
-    ap.add_argument("--ep", required=True, type=str, help='集數，或 "op" / "ed"')
-    ap.add_argument("--subs", type=Path, default=None)
-    ap.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "site" / "public")
-    args = ap.parse_args()
-
-    if not args.folder.is_dir():
-        sys.exit(f"資料夾不存在：{args.folder}")
-    if not args.video.exists():
-        sys.exit(f"影片不存在：{args.video}")
-
-    ep = parse_ep(args.ep)
+def process_group(shots: list[Path], video: Path, ep: int, out: Path, subs_arg: Path | None) -> None:
     folder = ep_folder(ep)
-    img_dir = args.out / "img" / folder
-    index_path = args.out / "index" / "yumemita.json"
+    img_dir = out / "img" / folder
+    index_path = out / "index" / "yumemita.json"
     img_dir.mkdir(parents=True, exist_ok=True)
 
-    shots = sorted(p for p in args.folder.iterdir() if p.suffix.lower() in IMG_EXTS)
-    if not shots:
-        sys.exit(f"資料夾裡沒有找到圖片：{args.folder}")
-    print(f"第 {args.ep} 集 | 待匯入 {len(shots)} 張截圖")
-
-    subs = args.subs or Path(__file__).parent.parent / "素材" / f"ep{ep:02d}.srt"
-    events = load_subs(subs) if subs.exists() else []
-    print(f"  字幕來源：{subs.name}（{len(events)} 句）" if events else "  （無字幕檔，文字欄位留空）")
+    print(f"\n=== 第 {ep} 集 | 影片：{video.name} | {len(shots)} 張截圖 ===")
 
     index = {"series": "yumemita", "items": [], "draftEpisodes": []}
     if index_path.exists():
@@ -162,6 +166,17 @@ def main():
         index.setdefault("draftEpisodes", [])
 
     same_ep = [x for x in index["items"] if x["ep"] == ep]
+    already = {x["source"] for x in same_ep if "source" in x}
+    shots = [s for s in shots if s.name not in already]
+    if not shots:
+        print("  這些截圖都已經匯入過了，沒有新的要處理。")
+        return
+
+    subs = subs_arg or Path(__file__).parent.parent / "素材" / f"ep{ep:02d}.srt"
+    events = load_subs(subs) if subs.exists() else []
+    print(f"  字幕來源：{subs.name}（{len(events)} 句）" if events else "  （無字幕檔，文字欄位留空）")
+    print(f"  待處理 {len(shots)} 張（已跳過先前匯入過的）")
+
     existing_m = [int(Path(x["img"]).stem[1:]) for x in same_ep
                   if Path(x["img"]).stem.startswith("m") and Path(x["img"]).stem[1:].isdigit()]
     n = (max(existing_m) + 1) if existing_m else 1
@@ -169,7 +184,7 @@ def main():
     work = Path(tempfile.mkdtemp(prefix="batchadd_"))
     imported, uncertain = [], []
     try:
-        candidates = build_candidate_frames(args.video, work)
+        candidates = build_candidate_frames(video, work)
 
         print("  比對每張截圖...")
         for i, shot in enumerate(shots, 1):
@@ -197,6 +212,7 @@ def main():
                 "text": text,
                 "img": f"img/{folder}/{name}",
                 "tags": ["待確認"],
+                "source": shot.name,
             })
             imported.append((shot.name, t, text))
             n += 1
@@ -210,13 +226,60 @@ def main():
     index_path.write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")),
                           encoding="utf-8")
 
-    print(f"\n完成：成功匯入 {len(imported)} 張，索引共 {len(index['items'])} 筆")
+    print(f"完成：成功匯入 {len(imported)} 張，索引共 {len(index['items'])} 筆")
     for name, t, text in imported:
         print(f"  {int(t//60)}:{int(t%60):02d}  {text or '（無字幕，需手動補文字）'}  ← {name}")
     if uncertain:
-        print(f"\n無法確定對應時間，未自動匯入（{len(uncertain)} 張，需手動用 add_image.py 處理）：")
+        print(f"無法確定對應時間，未自動匯入（{len(uncertain)} 張，需手動用 add_image.py 處理）：")
         for name, t, best in uncertain:
             print(f"  {name}  最接近 {int(t//60)}:{int(t%60):02d}（差異值 {best:.0f}，信心不足）")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--folder", required=True, type=Path)
+    ap.add_argument("--video", type=Path, default=None, help="不指定就從檔名自動找對應影片")
+    ap.add_argument("--ep", type=str, default=None, help='不指定就從檔名自動判斷集數（"op"/"ed" 要手動指定）')
+    ap.add_argument("--subs", type=Path, default=None)
+    ap.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "site" / "public")
+    args = ap.parse_args()
+
+    if not args.folder.is_dir():
+        sys.exit(f"資料夾不存在：{args.folder}")
+
+    all_shots = sorted(p for p in args.folder.iterdir() if p.suffix.lower() in IMG_EXTS)
+    if not all_shots:
+        sys.exit(f"資料夾裡沒有找到圖片：{args.folder}")
+
+    if args.ep is not None:
+        # 手動指定模式：整個資料夾當同一集處理
+        if args.video is None:
+            sys.exit("有指定 --ep 就也要指定 --video")
+        process_group(all_shots, args.video, parse_ep(args.ep), args.out, args.subs)
+        return
+
+    # 全自動模式：從檔名判斷集數分組，各自找影片
+    groups: dict[int, list[Path]] = {}
+    unknown = []
+    for shot in all_shots:
+        ep = detect_episode(shot.name)
+        if ep is None:
+            unknown.append(shot.name)
+        else:
+            groups.setdefault(ep, []).append(shot)
+
+    if unknown:
+        print(f"檔名判斷不出集數，略過（{len(unknown)} 張，需手動用 --ep 指定處理）：")
+        for name in unknown:
+            print(f"  {name}")
+
+    for ep in sorted(groups):
+        video = args.video or find_video_for_episode(ep)
+        if video is None:
+            print(f"\n=== 第 {ep} 集 | {len(groups[ep])} 張截圖 ===")
+            print(f"  找不到對應的影片檔（搜尋過：{', '.join(str(d) for d in VIDEO_SEARCH_DIRS)}），略過")
+            continue
+        process_group(groups[ep], video, ep, args.out, args.subs)
 
 
 if __name__ == "__main__":
