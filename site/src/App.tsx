@@ -177,6 +177,23 @@ export default function App() {
     setDirty(true)
   }
 
+  /** 排序完全靠 t（時間戳）決定，這裡讓使用者直接跟前/後一張互換順序，
+   * 不用去猜正確的秒數。用「新鄰居的中點」算出新 t，而不是單純跟鄰居互換數值，
+   * 這樣就算兩張的 t 剛好相同（重複匯入很常見）也一定會真的移動，不會卡住。 */
+  const moveItem = (id: string, dir: -1 | 1) => {
+    const idx = filtered.findIndex(x => x.id === id)
+    const j = idx + dir
+    if (idx < 0 || j < 0 || j >= filtered.length) return
+    const a = filtered[idx]
+    const b = filtered[j]
+    if (a.ep !== b.ep) return
+    const k = j + dir
+    const beyond = k >= 0 && k < filtered.length && filtered[k].ep === a.ep ? filtered[k].t : null
+    const newT = Math.round((beyond !== null ? (b.t + beyond) / 2 : b.t + dir * 0.001) * 1000) / 1000
+    setItems(prev => prev && prev.map(x => (x.id === a.id ? { ...x, t: newT } : x)))
+    setDirty(true)
+  }
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -414,7 +431,10 @@ export default function App() {
           <p className="text-center text-zinc-500 py-20">找不到符合的截圖，換個關鍵字試試。</p>
         )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
-          {filtered.slice(0, shown).map(i => (
+          {filtered.slice(0, shown).map((i, idx) => {
+            const canMoveUp = idx > 0 && filtered[idx - 1].ep === i.ep
+            const canMoveDown = idx < filtered.length - 1 && filtered[idx + 1].ep === i.ep
+            return (
             <div
               key={i.id}
               role="button"
@@ -534,12 +554,39 @@ export default function App() {
                     {i.text || `（${i.tags[0] ?? '場景'}）`}
                   </p>
                 )}
-                <p className="mt-1.5 text-[11px] text-zinc-500 group-hover:text-zinc-400">
-                  {epLabel(i.ep)} · {fmtTime(i.t)}
+                <p className="mt-1.5 text-[11px] text-zinc-500 group-hover:text-zinc-400 flex items-center gap-1.5">
+                  <span>{epLabel(i.ep)} · {fmtTime(i.t)}</span>
+                  {editMode && (
+                    <span className="ml-auto flex gap-0.5">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          moveItem(i.id, -1)
+                        }}
+                        disabled={!canMoveUp}
+                        title="往前移（跟上一張互換順序）"
+                        className="size-5 rounded flex items-center justify-center border border-white/10 hover:border-white/30 disabled:opacity-20 disabled:hover:border-white/10 transition-colors"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          moveItem(i.id, 1)
+                        }}
+                        disabled={!canMoveDown}
+                        title="往後移（跟下一張互換順序）"
+                        className="size-5 rounded flex items-center justify-center border border-white/10 hover:border-white/30 disabled:opacity-20 disabled:hover:border-white/10 transition-colors"
+                      >
+                        ▼
+                      </button>
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
         <div ref={sentinel} className="h-1" />
       </main>

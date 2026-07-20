@@ -70,6 +70,7 @@ def main():
     ap.add_argument("--text", default="", help="台詞或描述文字（可留空）")
     ap.add_argument("--t", type=float, default=None, help="排序用時間點（秒），不填就排最後")
     ap.add_argument("--tags", default="", help="逗號分隔的標籤，例：場景,重要")
+    ap.add_argument("--source", default="", help="原始截圖檔名（有給的話，batch_add_images.py 重跑時會跳過，不會再列成信心不足）")
     ap.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "site" / "public")
     args = ap.parse_args()
 
@@ -112,6 +113,8 @@ def main():
         "img": f"img/{folder}/{name}",
         "tags": [s.strip() for s in args.tags.split(",") if s.strip()],
     }
+    if args.source:
+        item["source"] = args.source
     index["items"].append(item)
     index["items"].sort(key=lambda x: (x["ep"], x["t"]))
     index_path.parent.mkdir(parents=True, exist_ok=True)
