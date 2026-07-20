@@ -135,6 +135,8 @@ export default function App() {
   const [dirty, setDirty] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [draftEpisodes, setDraftEpisodes] = useState<number[]>([])
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
   const sentinel = useRef<HTMLDivElement>(null)
   const pendingId = useRef<string | null>(new URLSearchParams(location.search).get('id'))
 
@@ -177,21 +179,36 @@ export default function App() {
     setDirty(true)
   }
 
-  /** 排序完全靠 t（時間戳）決定，這裡讓使用者直接跟前/後一張互換順序，
-   * 不用去猜正確的秒數。用「新鄰居的中點」算出新 t，而不是單純跟鄰居互換數值，
-   * 這樣就算兩張的 t 剛好相同（重複匯入很常見）也一定會真的移動，不會卡住。 */
-  const moveItem = (id: string, dir: -1 | 1) => {
-    const idx = filtered.findIndex(x => x.id === id)
-    const j = idx + dir
-    if (idx < 0 || j < 0 || j >= filtered.length) return
-    const a = filtered[idx]
-    const b = filtered[j]
-    if (a.ep !== b.ep) return
-    const k = j + dir
+  /** 排序完全靠 t（時間戳）決定，這裡讓使用者直接調整順序，不用去猜正確的秒數。
+   * 把 a 移到「緊鄰 b、朝 dir 方向」的位置：用 b 跟它另一側鄰居的中點算出 a 的新 t，
+   * 而不是單純跟 b 互換數值，這樣就算兩者的 t 剛好相同（重複匯入很常見）也一定會
+   * 真的移動、不會卡住。dir=-1 表示移到 b 前面，+1 表示移到 b 後面。
+   * 拖曳（handleDrop）跟 ▲▼（moveItem）共用這個核心邏輯。 */
+  const repositionNextTo = (aId: string, bId: string, dir: -1 | 1) => {
+    const bIdx = filtered.findIndex(x => x.id === bId)
+    const a = filtered.find(x => x.id === aId)
+    const b = filtered[bIdx]
+    if (!a || !b || a.id === b.id || a.ep !== b.ep) return
+    const k = bIdx + dir
     const beyond = k >= 0 && k < filtered.length && filtered[k].ep === a.ep ? filtered[k].t : null
     const newT = Math.round((beyond !== null ? (b.t + beyond) / 2 : b.t + dir * 0.001) * 1000) / 1000
     setItems(prev => prev && prev.map(x => (x.id === a.id ? { ...x, t: newT } : x)))
     setDirty(true)
+  }
+
+  const moveItem = (id: string, dir: -1 | 1) => {
+    const idx = filtered.findIndex(x => x.id === id)
+    const neighbor = filtered[idx + dir]
+    if (idx < 0 || !neighbor) return
+    repositionNextTo(id, neighbor.id, dir)
+  }
+
+  const handleDrop = (aId: string, targetId: string) => {
+    if (aId === targetId) return
+    const fromIdx = filtered.findIndex(x => x.id === aId)
+    const toIdx = filtered.findIndex(x => x.id === targetId)
+    if (fromIdx < 0 || toIdx < 0) return
+    repositionNextTo(aId, targetId, fromIdx < toIdx ? 1 : -1)
   }
 
   const toggleSelect = (id: string) => {
@@ -446,10 +463,35 @@ export default function App() {
                   setSelected(i)
                 }
               }}
+              onDragOver={e => {
+                if (editMode && dragId) e.preventDefault()
+              }}
+              onDragEnter={e => {
+                if (editMode && dragId && dragId !== i.id) {
+                  e.preventDefault()
+                  setOverId(i.id)
+                }
+              }}
+              onDrop={e => {
+                if (!editMode || !dragId) return
+                e.preventDefault()
+                e.stopPropagation()
+                handleDrop(dragId, i.id)
+                setDragId(null)
+                setOverId(null)
+              }}
+              onDragEnd={() => {
+                setDragId(null)
+                setOverId(null)
+              }}
               className={`fade-in text-left rounded-xl overflow-hidden bg-white/5 border transition-all group cursor-pointer ${
-                selectedIds.has(i.id)
-                  ? 'border-pink-400 ring-2 ring-pink-400/50'
-                  : 'border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5'
+                dragId === i.id
+                  ? 'opacity-40'
+                  : overId === i.id && dragId
+                    ? 'border-cyan-300 ring-2 ring-cyan-300/50'
+                    : selectedIds.has(i.id)
+                      ? 'border-pink-400 ring-2 ring-pink-400/50'
+                      : 'border-white/10 hover:border-pink-400/50 hover:-translate-y-0.5'
               }`}
             >
               <div className="relative">
@@ -477,6 +519,28 @@ export default function App() {
                         <path d="M4 10.5l4 4 8-9" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     )}
+                  </button>
+                )}
+                {editMode && (
+                  <button
+                    draggable
+                    onDragStart={e => {
+                      e.stopPropagation()
+                      e.dataTransfer.effectAllowed = 'move'
+                      setDragId(i.id)
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    title="拖曳調整順序"
+                    className="absolute top-1.5 left-8 size-6 rounded-md border border-white/40 bg-black/50 hover:border-white/70 flex items-center justify-center cursor-grab active:cursor-grabbing"
+                  >
+                    <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor">
+                      <circle cx="6" cy="5" r="1.4" />
+                      <circle cx="6" cy="10" r="1.4" />
+                      <circle cx="6" cy="15" r="1.4" />
+                      <circle cx="13" cy="5" r="1.4" />
+                      <circle cx="13" cy="10" r="1.4" />
+                      <circle cx="13" cy="15" r="1.4" />
+                    </svg>
                   </button>
                 )}
                 <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-black/55 backdrop-blur-sm px-1 py-1">
@@ -550,7 +614,7 @@ export default function App() {
                     className="w-full resize-none rounded-lg bg-black/30 border border-pink-400/30 px-2 py-1 text-sm leading-snug outline-none focus:border-pink-400/70"
                   />
                 ) : (
-                  <p className={`text-sm leading-snug line-clamp-2 min-h-10 ${i.text ? '' : 'text-zinc-500 italic'}`}>
+                  <p className={`text-sm leading-snug line-clamp-2 min-h-10 whitespace-pre-line ${i.text ? '' : 'text-zinc-500 italic'}`}>
                     {i.text || `（${i.tags[0] ?? '場景'}）`}
                   </p>
                 )}
@@ -707,7 +771,7 @@ export default function App() {
                   className="w-full resize-none rounded-lg bg-black/30 border border-pink-400/30 px-3 py-2 text-base outline-none focus:border-pink-400/70"
                 />
               ) : (
-                <p className="text-base">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
+                <p className="text-base whitespace-pre-line">{selected.text || `（${selected.tags[0] ?? '場景'}）`}</p>
               )}
               <p className="mt-1 text-xs text-zinc-500">
                 {epLabel(selected.ep)} · {fmtTime(selected.t)}
