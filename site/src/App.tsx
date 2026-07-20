@@ -7,6 +7,7 @@ type Item = {
   text: string
   img: string
   tags: string[]
+  source?: string
 }
 
 const BASE = import.meta.env.BASE_URL
@@ -87,13 +88,14 @@ async function removeImageFile(root: FileSystemDirectoryHandle, img: string): Pr
   await (dir as any).removeEntry(parts[parts.length - 1])
 }
 
-/** 記入排除清單（跟 prune.py 用同一份檔案，重跑管線不會復活），一次可以加多筆 */
+/** 記入排除清單（跟 prune.py 用同一份檔案，重跑管線不會復活），一次可以加多筆。
+ * 有帶 source 的話 batch_add_images.py 重跑也不會把原始截圖當新檔案復活匯入。 */
 async function appendExcludeList(
   root: FileSystemDirectoryHandle,
-  entries: { ep: number; t: number; text: string }[],
+  entries: { ep: number; t: number; text: string; source?: string }[],
 ): Promise<void> {
   const 素材 = await root.getDirectoryHandle('素材')
-  let exclude: { ep: number; t: number; text: string }[] = []
+  let exclude: { ep: number; t: number; text: string; source?: string }[] = []
   try {
     const fh = await 素材.getFileHandle('排除清單.json')
     exclude = JSON.parse(await (await fh.getFile()).text())
@@ -225,7 +227,9 @@ export default function App() {
     if (!window.confirm(`確定要刪除這張圖嗎？\n${item.text || '（無文字）'}\n此動作無法復原。`)) return
     try {
       await removeImageFile(rootHandle, item.img)
-      await appendExcludeList(rootHandle, [{ ep: item.ep, t: item.t, text: item.text.slice(0, 20) }])
+      await appendExcludeList(rootHandle, [
+        { ep: item.ep, t: item.t, text: item.text.slice(0, 20), source: item.source },
+      ])
       const next = (items ?? []).filter(x => x.id !== item.id)
       setItems(next)
       setSelected(prev => (prev && prev.id === item.id ? null : prev))
@@ -244,7 +248,7 @@ export default function App() {
       for (const item of targets) await removeImageFile(rootHandle, item.img)
       await appendExcludeList(
         rootHandle,
-        targets.map(item => ({ ep: item.ep, t: item.t, text: item.text.slice(0, 20) })),
+        targets.map(item => ({ ep: item.ep, t: item.t, text: item.text.slice(0, 20), source: item.source })),
       )
       const next = items.filter(x => !selectedIds.has(x.id))
       setItems(next)

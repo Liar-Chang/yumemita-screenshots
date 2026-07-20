@@ -87,6 +87,15 @@ def detect_episode(filename: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def excluded_sources() -> set[str]:
+    """已經被刪除過的手動截圖（編輯模式刪圖或 prune.py 都會記在這），
+    不管原始檔案是不是還躺在截圖資料夾裡，都不該再被當成新檔案匯入。"""
+    path = Path(__file__).parent.parent / "素材" / "排除清單.json"
+    if not path.exists():
+        return set()
+    return {x["source"] for x in json.loads(path.read_text(encoding="utf-8-sig")) if x.get("source")}
+
+
 def find_video_for_episode(ep: int) -> Path | None:
     tag = f"第{ep:02d}話"
     for d in VIDEO_SEARCH_DIRS:
@@ -166,10 +175,10 @@ def process_group(shots: list[Path], video: Path, ep: int, out: Path, subs_arg: 
         index.setdefault("draftEpisodes", [])
 
     same_ep = [x for x in index["items"] if x["ep"] == ep]
-    already = {x["source"] for x in same_ep if "source" in x}
+    already = {x["source"] for x in same_ep if "source" in x} | excluded_sources()
     shots = [s for s in shots if s.name not in already]
     if not shots:
-        print("  這些截圖都已經匯入過了，沒有新的要處理。")
+        print("  這些截圖都已經匯入過了（或已被刪除過），沒有新的要處理。")
         return
 
     subs = subs_arg or Path(__file__).parent.parent / "素材" / f"ep{ep:02d}.srt"

@@ -37,7 +37,10 @@ def main():
             keep.append(it)
         else:
             removed.append(it)
-            excluded.append({"ep": it["ep"], "t": it["t"], "text": it["text"][:20]})
+            entry = {"ep": it["ep"], "t": it["t"], "text": it["text"][:20]}
+            if it.get("source"):
+                entry["source"] = it["source"]
+            excluded.append(entry)
 
     if not removed:
         print("沒有發現被刪除的圖片，索引無須變動。")
