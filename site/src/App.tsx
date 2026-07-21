@@ -31,6 +31,13 @@ function epLabel(ep: number): string {
   return `第 ${ep} 集`
 }
 
+/** 排序用：一般集數照數字排在前面，OP/ED 排到最後面（OP 在 ED 之前） */
+function epSortKey(ep: number): number {
+  if (ep === -1) return 1000
+  if (ep === 1000) return 1001
+  return ep
+}
+
 /** 保留目前的搜尋/集數篩選，換成指向特定截圖的分享連結 */
 function shareUrl(id: string): string {
   const p = new URLSearchParams(location.search)
@@ -296,7 +303,7 @@ export default function App() {
     if (!items) return []
     const count = new Map<number, number>()
     for (const i of items) count.set(i.ep, (count.get(i.ep) ?? 0) + 1)
-    return [...count.entries()].sort((a, b) => a[0] - b[0])
+    return [...count.entries()].sort((a, b) => epSortKey(a[0]) - epSortKey(b[0]))
   }, [items])
 
   const filtered = useMemo(() => {
@@ -307,7 +314,7 @@ export default function App() {
         (ep === 0 || i.ep === ep) &&
         (nq === '' || norm(i.text).includes(nq) || i.tags.some(t => norm(t).includes(nq))),
     )
-    return r.sort((a, b) => (a.ep - b.ep || a.t - b.t) * (desc ? -1 : 1))
+    return r.sort((a, b) => (epSortKey(a.ep) - epSortKey(b.ep) || a.t - b.t) * (desc ? -1 : 1))
   }, [items, q, ep, desc])
 
   // 搜尋條件變動 → 重置分頁
@@ -392,6 +399,24 @@ export default function App() {
             className="rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm hover:border-white/25 transition-colors"
           >
             {desc ? '時間 ↓' : '時間 ↑'}
+          </button>
+          <button
+            onClick={() =>
+              navigator.clipboard
+                .writeText(`${location.origin}${location.pathname}`)
+                .then(() => showToast('已複製網站連結 ✓'))
+            }
+            title="複製網站連結"
+            className="rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm hover:border-white/25 transition-colors flex items-center gap-1.5"
+          >
+            <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6}>
+              <path
+                d="M8.5 11.5l3-3M7 12.5l-1.2 1.2a2.3 2.3 0 01-3.3-3.3L3.8 9.2M12.2 7.8L13.4 6.6a2.3 2.3 0 013.3 3.3L15.5 11"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            複製網站連結
           </button>
           {CAN_EDIT && (
             <button
