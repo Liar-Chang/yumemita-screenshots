@@ -362,6 +362,7 @@ export default function App() {
         <p className="mt-2 text-sm text-zinc-400">
           BanG Dream! YUME∞MITA 台詞截圖搜尋——輸入關鍵字，或選擇集數瀏覽
         </p>
+        <p className="mt-1 text-xs text-zinc-600">作者：千早愛音的暴躁柯基</p>
       </header>
 
       {/* Controls */}
