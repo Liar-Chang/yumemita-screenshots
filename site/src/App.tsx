@@ -325,6 +325,17 @@ export default function App() {
     return () => ob.disconnect()
   }, [])
 
+  // 拖曳排序時滾輪捲動整頁（有些截圖離正確位置很遠，拖曳中要能滾到很上面/很下面）
+  useEffect(() => {
+    if (!dragId) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      window.scrollBy({ top: e.deltaY, left: e.deltaX })
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [dragId])
+
   // Lightbox 鍵盤操作
   useEffect(() => {
     if (!selected) return
