@@ -26,10 +26,10 @@ except Exception:
 # ---------- 參數 ----------
 
 SCENE_THRESHOLD = 0.35   # 場景變化敏感度（0~1，越低抓越多）
-GAP_MIN = 4.0            # 無台詞空窗超過此秒數才補場景圖
-SCENE_MIN_SPACING = 2.5  # 場景圖之間最小間隔（秒）
-GAP_FALLBACK_STEP = 6.0  # 空窗內完全沒場景變化時，退而求其次的固定取樣間隔
-LONG_LINE_SPAN = 6.0     # 台詞持續超過此秒數就多抽幾張
+GAP_MIN = 3.0            # 無台詞空窗超過此秒數才補場景圖
+SCENE_MIN_SPACING = 1.5  # 場景圖之間最小間隔（秒）
+GAP_FALLBACK_STEP = 4.0  # 空窗內完全沒場景變化時，退而求其次的固定取樣間隔
+LONG_LINE_SPAN = 3.0     # 台詞持續超過此秒數就多抽幾張（調低過，一般長度的台詞也會多抽一張）
 WEBP_QUALITY = "82"
 OUT_WIDTH = 1280
 
