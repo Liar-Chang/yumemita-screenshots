@@ -42,10 +42,13 @@ EP_ALIASES = {"op": -1, "ed": 1000}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm"}
 
-# 自動找影片時要搜尋的資料夾（有新的下載資料夾就加進來）
+# 自動找影片時要搜尋的資料夾（有新的下載資料夾就加進來）。
+# 專案根目錄下的「影片」資料夾是使用者統一存放全部影片的地方（2026-07-24 起），排第一個找。
 VIDEO_SEARCH_DIRS = [
+    Path(__file__).parent.parent / "影片",
     Path.home() / "Videos" / "iFlyDown Video",
     Path.home() / "Videos" / "video",
+    Path.home() / "Downloads" / "AnyUkit" / "video",
 ]
 EP_PATTERN = re.compile(r"第(\d+)話")
 

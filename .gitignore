@@ -9,6 +9,7 @@ __pycache__/
 素材/*.mkv
 素材/*.webm
 素材/temp/
+影片/
 
 # 系統檔
 Thumbs.db
