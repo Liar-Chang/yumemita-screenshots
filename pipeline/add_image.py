@@ -28,7 +28,7 @@ except Exception:
 
 WEBP_QUALITY = "82"
 OUT_WIDTH = 1280
-EP_ALIASES = {"op": -1, "ed": 1000}
+EP_ALIASES = {"op": -1, "op7": -2, "ed": 1000}
 
 
 def find_bin(name: str) -> str:
@@ -58,6 +58,8 @@ def parse_ep(s: str) -> int:
 def ep_folder(ep: int) -> str:
     if ep == -1:
         return "op"
+    if ep == -2:
+        return "op7"
     if ep == 1000:
         return "ed"
     return f"e{ep:02d}"

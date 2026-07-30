@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 INDEX_PATH = ROOT / "site" / "public" / "index" / "yumemita.json"
-EP_ALIASES = {"op": -1, "ed": 1000}
+EP_ALIASES = {"op": -1, "op7": -2, "ed": 1000}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 TS_RE = re.compile(r"_(\d{8})_(\d{6})\.(\d+)\.\w+$")
 

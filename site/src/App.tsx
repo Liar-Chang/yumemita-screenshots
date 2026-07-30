@@ -26,15 +26,17 @@ function fmtTime(t: number): string {
 
 /** OP/ED 是跨集共用的獨立分類，用特殊 ep 值標記（-1=OP，1000=ED；0 保留給「全部集數」） */
 function epLabel(ep: number): string {
-  if (ep === -1) return 'OP'
+  if (ep === -1) return 'OP（第1~6話）'
+  if (ep === -2) return 'OP（第7話起）'
   if (ep === 1000) return 'ED'
   return `第 ${ep} 集`
 }
 
-/** 排序用：一般集數照數字排在前面，OP/ED 排到最後面（OP 在 ED 之前） */
+/** 排序用：一般集數照數字排在前面，OP/ED 排到最後面（OP 在 ED 之前，新舊 OP 照發布順序） */
 function epSortKey(ep: number): number {
   if (ep === -1) return 1000
-  if (ep === 1000) return 1001
+  if (ep === -2) return 1001
+  if (ep === 1000) return 1002
   return ep
 }
 

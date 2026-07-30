@@ -38,7 +38,7 @@ THUMB_SIZE = (64, 36)     # 比對用縮圖大小（寬,高）
 GOOD_DIFF = 15.0          # 平均像素差在這以下才算是有信心的匹配（0~255 尺度）
 NEARBY_SECONDS = 3.0      # 候選幀時間差在這以內都算「同一幕」，不當作互相競爭的候選
 CAPTION_WINDOW = 2.0      # 匹配時間點前後幾秒內找字幕當建議文字
-EP_ALIASES = {"op": -1, "ed": 1000}
+EP_ALIASES = {"op": -1, "op7": -2, "ed": 1000}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm"}
 
@@ -80,6 +80,8 @@ def parse_ep(s: str) -> int:
 def ep_folder(ep: int) -> str:
     if ep == -1:
         return "op"
+    if ep == -2:
+        return "op7"
     if ep == 1000:
         return "ed"
     return f"e{ep:02d}"
