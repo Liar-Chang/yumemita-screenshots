@@ -93,6 +93,7 @@ def main():
             skipped.append(name)
             continue
 
+        t = max(0.0, t)  # 外插可能把片頭附近的截圖推到負值，時間軸從 0 開始，夾住下限
         img_path = args.folder / name
         r = subprocess.run(
             [sys.executable, str(ROOT / "pipeline" / "add_image.py"),

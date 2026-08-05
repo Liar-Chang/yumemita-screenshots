@@ -241,7 +241,11 @@ export default function App() {
       ])
       const next = (items ?? []).filter(x => x.id !== item.id)
       setItems(next)
-      setSelected(prev => (prev && prev.id === item.id ? null : prev))
+      setSelected(prev => {
+        if (!prev || prev.id !== item.id) return prev
+        const idx = filtered.findIndex(x => x.id === item.id)
+        return filtered[idx + 1] ?? filtered[idx - 1] ?? null
+      })
       await writeIndex(rootHandle, next, draftEpisodes)
       showToast('已刪除 ✓ 記得跑刪圖同步發佈')
     } catch {
