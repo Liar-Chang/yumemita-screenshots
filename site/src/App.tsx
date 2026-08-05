@@ -29,7 +29,7 @@ function epLabel(ep: number): string {
   if (ep === -1) return 'OP（第1~6話）'
   if (ep === -2) return 'OP（第7話起）'
   if (ep === 1000) return 'ED'
-  return `第 ${ep} 集`
+  return `第 ${ep} 話`
 }
 
 /** 排序用：一般集數照數字排在前面，OP/ED 排到最後面（OP 在 ED 之前，新舊 OP 照發布順序） */
