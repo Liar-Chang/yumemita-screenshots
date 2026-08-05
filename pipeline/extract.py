@@ -11,6 +11,7 @@
     site/public/index/yumemita.json   （{id, ep, t, text, img, tags} 陣列，依集數/時間排序）
 """
 import argparse
+import bisect
 import json
 import re
 import shutil
@@ -125,7 +126,12 @@ def detect_scenes(video: Path) -> list[float]:
 
 def plan_shots(events: list[dict], scenes: list[float], duration: float,
                exclude: list[tuple[float, float]] | None = None) -> list[dict]:
-    """回傳 [{t, text, tags}]，依時間排序。exclude 範圍內的台詞會整句跳過（OP/ED 用）。"""
+    """回傳 [{t, text, tags}]，依時間排序。exclude 範圍內的台詞會整句跳過（OP/ED 用）。
+
+    截圖原則：不是只有換台詞才截，畫面（鏡頭切換）有變動就值得截一張，就算同一句台詞
+    講到一半鏡頭切了也算——使用者要求寧可截多一點，多的自己在編輯模式手動刪，比事後
+    才發現漏掉、要手動補截圖方便。
+    """
     exclude = exclude or []
 
     def in_excluded(t: float) -> bool:
@@ -142,8 +148,30 @@ def plan_shots(events: list[dict], scenes: list[float], duration: float,
             t = e["start"] + span * (i + 1) / (n + 1)
             shots.append({"t": t, "text": e["text"], "tags": []})
 
-    # 2) 無台詞空窗：用場景變化點補圖（OP/ED、純畫面演出都靠這個涵蓋）
-    intervals = [(e["start"], e["end"]) for e in events]
+    # 2) 場景變化：整部片只要偵測到鏡頭切換就補一張，不限定在無台詞的空窗——
+    #    有台詞的話帶上當下那句（同一句話中間換鏡頭，文字還是那句，比空白或
+    #    純「場景」標籤更有用），已經有圖太近的場景點跳過避免抽到幾乎一樣的畫面。
+    def active_text(t: float) -> str:
+        for e in events:
+            if e["start"] <= t <= e["end"]:
+                return e["text"]
+        return ""
+
+    placed = sorted(s["t"] for s in shots)
+    last = -1e9
+    for t in scenes:
+        if in_excluded(t) or t - last < SCENE_MIN_SPACING:
+            continue
+        i = bisect.bisect_left(placed, t)
+        if any(abs(placed[j] - t) < SCENE_MIN_SPACING for j in (i - 1, i) if 0 <= j < len(placed)):
+            continue
+        last = t
+        text = active_text(t)
+        shots.append({"t": t, "text": text, "tags": [] if text else ["場景"]})
+        bisect.insort(placed, t)
+
+    # 3) 完全沒字幕、也沒偵測到場景變化的長空窗，保底固定取樣（避免整段空白沒有任何截圖）
+    intervals = sorted((e["start"], e["end"]) for e in events)
     gaps, cursor = [], 0.0
     for s, e in intervals:
         if s - cursor >= GAP_MIN:
@@ -153,20 +181,14 @@ def plan_shots(events: list[dict], scenes: list[float], duration: float,
         gaps.append((cursor, duration))
 
     for gs, ge in gaps:
-        in_gap = [t for t in scenes if gs + 0.3 <= t <= ge - 0.3]
-        picked, last = [], -1e9
-        for t in in_gap:
-            if t - last >= SCENE_MIN_SPACING:
-                picked.append(t)
-                last = t
-        if not picked and ge - gs >= GAP_FALLBACK_STEP:
+        if any(gs <= s["t"] <= ge for s in shots):
+            continue  # 這段空窗已經有場景點覆蓋了，不用保底取樣
+        if ge - gs >= GAP_FALLBACK_STEP:
             k = gs + GAP_FALLBACK_STEP / 2
             while k < ge:
-                picked.append(k)
+                if not in_excluded(k):
+                    shots.append({"t": k, "text": "", "tags": ["場景"]})
                 k += GAP_FALLBACK_STEP
-        for t in picked:
-            if not in_excluded(t):
-                shots.append({"t": t, "text": "", "tags": ["場景"]})
 
     shots.sort(key=lambda s: s["t"])
     return shots
